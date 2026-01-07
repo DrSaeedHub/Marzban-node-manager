@@ -21,7 +21,7 @@ get_script_dir() {
 # =============================================================================
 
 readonly MANAGER_NAME="marzban-node-manager"
-readonly MANAGER_VERSION="1.0.1"
+readonly MANAGER_VERSION="1.0.2"
 readonly MANAGER_INSTALL_DIR="/opt/marzban-node-manager"
 readonly MANAGER_DATA_DIR="/var/lib/marzban-node-manager"
 readonly MANAGER_DB_FILE="${MANAGER_DATA_DIR}/nodes.db"
@@ -322,9 +322,10 @@ read_cert_file() {
 
 # Read certificate interactively
 read_cert_interactive() {
-    print_info "Please paste the client certificate content below."
-    print_info "Press Enter twice when done (empty line to finish):"
-    echo ""
+    # Print prompts to stderr so they display even when stdout is captured
+    print_info "Please paste the client certificate content below." >&2
+    print_info "Press Enter twice when done (empty line to finish):" >&2
+    echo "" >&2
     
     local cert=""
     local line
