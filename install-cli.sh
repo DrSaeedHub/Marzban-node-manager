@@ -284,22 +284,114 @@ install_docker() {
             systemctl start docker >/dev/null 2>&1 || true
             systemctl enable docker >/dev/null 2>&1 || true
         fi
-    else
-        print_info "Installing Docker..."
         
-        if curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; then
+        # Ensure Docker's official repo is configured for compose plugin
+        setup_docker_repo
+    else
+        print_info "Installing Docker from official repository..."
+        
+        # Setup Docker's official repo and install
+        if setup_docker_repo && install_docker_from_repo; then
             systemctl start docker >/dev/null 2>&1 || true
             systemctl enable docker >/dev/null 2>&1 || true
             print_success "Docker installed and started"
         else
-            print_error "Failed to install Docker"
-            print_info "You can still use the 'normal' installation method without Docker"
-            return 0
+            # Fallback to convenience script
+            print_warning "Repo setup failed, trying convenience script..."
+            if curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; then
+                systemctl start docker >/dev/null 2>&1 || true
+                systemctl enable docker >/dev/null 2>&1 || true
+                print_success "Docker installed and started"
+            else
+                print_error "Failed to install Docker"
+                print_info "You can still use the 'normal' installation method without Docker"
+                return 0
+            fi
         fi
     fi
     
     # Check and install Docker Compose V2
     install_docker_compose_v2
+}
+
+# Setup Docker's official APT/YUM repository
+setup_docker_repo() {
+    case "$OS" in
+        ubuntu|debian|linuxmint)
+            setup_docker_apt_repo
+            ;;
+        centos|rhel|rocky|almalinux|fedora)
+            setup_docker_yum_repo
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+setup_docker_apt_repo() {
+    # Install prerequisites
+    apt-get install -y ca-certificates curl gnupg >/dev/null 2>&1
+    
+    # Create keyrings directory
+    install -m 0755 -d /etc/apt/keyrings
+    
+    # Remove old key if exists
+    rm -f /etc/apt/keyrings/docker.gpg
+    
+    # Add Docker's official GPG key
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    
+    # Determine the correct codename
+    local codename=""
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+    fi
+    
+    # Fallback codenames for newer Ubuntu versions
+    if [[ -z "$codename" ]] || ! curl -fsSL "https://download.docker.com/linux/ubuntu/dists/${codename}/Release" >/dev/null 2>&1; then
+        # Try to detect from lsb_release
+        codename=$(lsb_release -cs 2>/dev/null || echo "")
+    fi
+    
+    # If still no codename or not supported, use a known working one
+    if [[ -z "$codename" ]]; then
+        codename="jammy"  # Ubuntu 22.04 as fallback
+    fi
+    
+    # Add Docker's repo
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${codename} stable" > /etc/apt/sources.list.d/docker.list
+    
+    # Update package list
+    apt-get update -qq >/dev/null 2>&1
+    
+    return 0
+}
+
+setup_docker_yum_repo() {
+    # Install prerequisites
+    yum install -y yum-utils >/dev/null 2>&1
+    
+    # Add Docker repo
+    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo >/dev/null 2>&1
+    
+    return 0
+}
+
+install_docker_from_repo() {
+    case "$OS" in
+        ubuntu|debian|linuxmint)
+            apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1
+            ;;
+        centos|rhel|rocky|almalinux|fedora)
+            yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 install_docker_compose_v2() {
@@ -317,10 +409,34 @@ install_docker_compose_v2() {
         local legacy_version=$(docker-compose version --short 2>/dev/null || echo "unknown")
         print_warning "Legacy docker-compose ${legacy_version} found"
         print_warning "This version has compatibility issues with newer Docker"
-        print_info "Installing Docker Compose V2 plugin..."
-    else
-        print_info "Installing Docker Compose V2 plugin..."
     fi
+    
+    print_info "Installing Docker Compose V2 plugin..."
+    
+    # Method 1: Try package manager (requires Docker's official repo)
+    case "$OS" in
+        ubuntu|debian|linuxmint)
+            if apt-get install -y docker-compose-plugin >/dev/null 2>&1; then
+                if docker compose version >/dev/null 2>&1; then
+                    local version=$(docker compose version --short 2>/dev/null)
+                    print_success "Docker Compose V2 installed via apt (${version})"
+                    return 0
+                fi
+            fi
+            ;;
+        centos|rhel|rocky|almalinux|fedora)
+            if yum install -y docker-compose-plugin >/dev/null 2>&1; then
+                if docker compose version >/dev/null 2>&1; then
+                    local version=$(docker compose version --short 2>/dev/null)
+                    print_success "Docker Compose V2 installed via yum (${version})"
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+    
+    # Method 2: Direct download from GitHub
+    print_info "Package not available, downloading from GitHub..."
     
     # Detect architecture
     local arch=$(uname -m)
@@ -341,42 +457,29 @@ install_docker_compose_v2() {
     esac
     
     local compose_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch}"
-    local compose_dir="/usr/local/lib/docker/cli-plugins"
     
-    mkdir -p "$compose_dir"
+    # Try multiple plugin directories
+    local plugin_dirs=(
+        "/usr/local/lib/docker/cli-plugins"
+        "/usr/lib/docker/cli-plugins"
+        "/usr/libexec/docker/cli-plugins"
+        "${HOME}/.docker/cli-plugins"
+    )
     
-    if curl -SL "$compose_url" -o "${compose_dir}/docker-compose" 2>/dev/null; then
-        chmod +x "${compose_dir}/docker-compose"
+    for plugin_dir in "${plugin_dirs[@]}"; do
+        mkdir -p "$plugin_dir" 2>/dev/null || continue
         
-        # Also create symlink in /usr/libexec/docker/cli-plugins for some distros
-        mkdir -p /usr/libexec/docker/cli-plugins 2>/dev/null || true
-        ln -sf "${compose_dir}/docker-compose" /usr/libexec/docker/cli-plugins/docker-compose 2>/dev/null || true
-        
-        # Verify installation
-        if docker compose version >/dev/null 2>&1; then
-            local version=$(docker compose version --short 2>/dev/null)
-            print_success "Docker Compose V2 installed (${version})"
-            return 0
+        if curl -SL "$compose_url" -o "${plugin_dir}/docker-compose" 2>/dev/null; then
+            chmod +x "${plugin_dir}/docker-compose"
+            
+            # Verify installation
+            if docker compose version >/dev/null 2>&1; then
+                local version=$(docker compose version --short 2>/dev/null)
+                print_success "Docker Compose V2 installed (${version})"
+                return 0
+            fi
         fi
-    fi
-    
-    # Fallback: Try apt/yum package
-    print_warning "Direct download failed, trying package manager..."
-    
-    case "$OS" in
-        ubuntu|debian)
-            apt-get install -y docker-compose-plugin >/dev/null 2>&1 && {
-                print_success "Docker Compose V2 installed via apt"
-                return 0
-            }
-            ;;
-        centos|rhel|rocky|almalinux|fedora)
-            yum install -y docker-compose-plugin >/dev/null 2>&1 && {
-                print_success "Docker Compose V2 installed via yum"
-                return 0
-            }
-            ;;
-    esac
+    done
     
     # Final check
     if docker compose version >/dev/null 2>&1; then
@@ -385,7 +488,13 @@ install_docker_compose_v2() {
     fi
     
     print_error "Failed to install Docker Compose V2"
-    print_info "Please install manually: https://docs.docker.com/compose/install/linux/"
+    print_info "Please run these commands manually:"
+    echo ""
+    echo "  # Add Docker's official repo"
+    echo "  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg"
+    echo "  echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \$(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list"
+    echo "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
+    echo ""
     return 1
 }
 

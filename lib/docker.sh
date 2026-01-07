@@ -64,35 +64,88 @@ detect_compose() {
 
 # Install Docker Compose V2 plugin
 install_compose_v2() {
-    local compose_dir="/usr/local/lib/docker/cli-plugins"
-    local compose_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)"
-    
-    mkdir -p "$compose_dir"
-    
-    if curl -SL "$compose_url" -o "${compose_dir}/docker-compose" 2>/dev/null; then
-        chmod +x "${compose_dir}/docker-compose"
+    # Method 1: Try package manager first (if Docker repo is configured)
+    if command -v apt-get >/dev/null 2>&1; then
+        # Ensure Docker repo is set up
+        if [[ ! -f /etc/apt/sources.list.d/docker.list ]]; then
+            setup_docker_apt_repo_minimal
+        fi
         
-        # Verify installation
-        if docker compose version >/dev/null 2>&1; then
-            print_success "Docker Compose V2 installed"
-            return 0
+        if apt-get install -y docker-compose-plugin >/dev/null 2>&1; then
+            if docker compose version >/dev/null 2>&1; then
+                print_success "Docker Compose V2 installed via apt"
+                return 0
+            fi
+        fi
+    elif command -v yum >/dev/null 2>&1; then
+        if yum install -y docker-compose-plugin >/dev/null 2>&1; then
+            if docker compose version >/dev/null 2>&1; then
+                print_success "Docker Compose V2 installed via yum"
+                return 0
+            fi
         fi
     fi
     
-    # Alternative: try user-level installation
-    local user_compose_dir="${HOME}/.docker/cli-plugins"
-    mkdir -p "$user_compose_dir"
+    # Method 2: Direct download from GitHub
+    print_info "Downloading Docker Compose V2 from GitHub..."
     
-    if curl -SL "$compose_url" -o "${user_compose_dir}/docker-compose" 2>/dev/null; then
-        chmod +x "${user_compose_dir}/docker-compose"
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64) arch="x86_64" ;;
+        aarch64|arm64) arch="aarch64" ;;
+        armv7l|armhf) arch="armv7" ;;
+        *) arch="x86_64" ;;
+    esac
+    
+    local compose_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch}"
+    
+    # Try multiple plugin directories
+    local plugin_dirs=(
+        "/usr/local/lib/docker/cli-plugins"
+        "/usr/lib/docker/cli-plugins"
+        "/usr/libexec/docker/cli-plugins"
+    )
+    
+    for plugin_dir in "${plugin_dirs[@]}"; do
+        mkdir -p "$plugin_dir" 2>/dev/null || continue
         
-        if docker compose version >/dev/null 2>&1; then
-            print_success "Docker Compose V2 installed (user-level)"
-            return 0
+        if curl -SL "$compose_url" -o "${plugin_dir}/docker-compose" 2>/dev/null; then
+            chmod +x "${plugin_dir}/docker-compose"
+            
+            if docker compose version >/dev/null 2>&1; then
+                print_success "Docker Compose V2 installed"
+                return 0
+            fi
         fi
-    fi
+    done
     
     return 1
+}
+
+# Minimal Docker APT repo setup for compose plugin installation
+setup_docker_apt_repo_minimal() {
+    # Install prerequisites quietly
+    apt-get install -y ca-certificates curl gnupg >/dev/null 2>&1
+    
+    # Create keyrings directory
+    install -m 0755 -d /etc/apt/keyrings 2>/dev/null
+    
+    # Add Docker's official GPG key
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg 2>/dev/null | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null
+    chmod a+r /etc/apt/keyrings/docker.gpg 2>/dev/null
+    
+    # Get codename
+    local codename=""
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+    fi
+    [[ -z "$codename" ]] && codename=$(lsb_release -cs 2>/dev/null || echo "jammy")
+    
+    # Add repo
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${codename} stable" > /etc/apt/sources.list.d/docker.list 2>/dev/null
+    
+    apt-get update -qq >/dev/null 2>&1
 }
 
 # =============================================================================
