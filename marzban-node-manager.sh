@@ -312,8 +312,8 @@ cmd_uninstall() {
     
     print_kv "Node Name" "$NODE_NAME"
     print_kv "Method" "$NODE_METHOD"
-    print_kv "Install Dir" "$NODE_INSTALL_DIR"
-    print_kv "Data Dir" "$NODE_DATA_DIR"
+    print_kv "Install Dir" "$NODE_DIR"
+    print_kv "Data Dir" "$NODE_DATA"
     echo ""
     
     # Confirmation
@@ -336,9 +336,9 @@ cmd_uninstall() {
     
     # Uninstall based on method
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_uninstall "$NODE_NAME" "$NODE_INSTALL_DIR" "$NODE_DATA_DIR" "$remove_data"
+        docker_node_uninstall "$NODE_NAME" "$NODE_DIR" "$NODE_DATA" "$remove_data"
     else
-        systemd_node_uninstall "$NODE_NAME" "$NODE_INSTALL_DIR" "$NODE_DATA_DIR" "$remove_data"
+        systemd_node_uninstall "$NODE_NAME" "$NODE_DIR" "$NODE_DATA" "$remove_data"
     fi
     
     # Remove from database
@@ -411,10 +411,10 @@ cmd_edit() {
     
     # Update configuration files
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        local compose_file="${NODE_INSTALL_DIR}/docker-compose.yml"
+        local compose_file="${NODE_DIR}/docker-compose.yml"
         update_compose_ports "$compose_file" "$new_service_port" "$new_xray_port"
     else
-        local env_file="${NODE_INSTALL_DIR}/.env"
+        local env_file="${NODE_DIR}/.env"
         update_env_ports "$env_file" "$new_service_port" "$new_xray_port"
     fi
     
@@ -424,7 +424,7 @@ cmd_edit() {
     # Restart node
     print_info "Restarting node to apply changes..."
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_restart "$NODE_INSTALL_DIR" "$NODE_NAME"
+        docker_node_restart "$NODE_DIR" "$NODE_NAME"
     else
         systemd_node_restart "$NODE_NAME"
     fi
@@ -470,8 +470,8 @@ cmd_status() {
         print_kv "Method" "$NODE_METHOD"
         print_kv "SERVICE_PORT" "$NODE_SERVICE_PORT"
         print_kv "XRAY_API_PORT" "$NODE_XRAY_PORT"
-        print_kv "Install Dir" "$NODE_INSTALL_DIR"
-        print_kv "Data Dir" "$NODE_DATA_DIR"
+        print_kv "Install Dir" "$NODE_DIR"
+        print_kv "Data Dir" "$NODE_DATA"
         print_kv "Container/PID" "$identifier"
         print_kv "Created" "$NODE_CREATED"
     else
@@ -545,7 +545,7 @@ cmd_start() {
     parse_node_record "$node_record"
     
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_start "$NODE_INSTALL_DIR" "$NODE_NAME"
+        docker_node_start "$NODE_DIR" "$NODE_NAME"
     else
         systemd_node_start "$NODE_NAME"
     fi
@@ -568,7 +568,7 @@ cmd_stop() {
     parse_node_record "$node_record"
     
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_stop "$NODE_INSTALL_DIR" "$NODE_NAME"
+        docker_node_stop "$NODE_DIR" "$NODE_NAME"
     else
         systemd_node_stop "$NODE_NAME"
     fi
@@ -591,7 +591,7 @@ cmd_restart() {
     parse_node_record "$node_record"
     
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_restart "$NODE_INSTALL_DIR" "$NODE_NAME"
+        docker_node_restart "$NODE_DIR" "$NODE_NAME"
     else
         systemd_node_restart "$NODE_NAME"
     fi
@@ -616,7 +616,7 @@ cmd_logs() {
     parse_node_record "$node_record"
     
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_logs "$NODE_INSTALL_DIR" "$NODE_NAME" "$FOLLOW_LOGS"
+        docker_node_logs "$NODE_DIR" "$NODE_NAME" "$FOLLOW_LOGS"
     else
         systemd_node_logs "$NODE_NAME" "$FOLLOW_LOGS"
     fi
@@ -663,14 +663,14 @@ cmd_update() {
     print_header "Update Node: $NODE_NAME"
     
     if [[ "$NODE_METHOD" == "docker" ]]; then
-        docker_node_update "$NODE_INSTALL_DIR" "$NODE_NAME"
-        docker_node_restart "$NODE_INSTALL_DIR" "$NODE_NAME"
+        docker_node_update "$NODE_DIR" "$NODE_NAME"
+        docker_node_restart "$NODE_DIR" "$NODE_NAME"
     else
         print_info "Updating from git repository..."
-        cd "$NODE_INSTALL_DIR" && git pull --quiet
+        cd "$NODE_DIR" && git pull --quiet
         
         print_info "Updating dependencies..."
-        install_python_deps "$NODE_INSTALL_DIR"
+        install_python_deps "$NODE_DIR"
         
         systemd_node_restart "$NODE_NAME"
     fi

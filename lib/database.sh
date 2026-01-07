@@ -346,17 +346,26 @@ db_config_delete() {
 # Parse node record into variables
 # Usage: parse_node_record <record>
 # Sets: NODE_ID, NODE_NAME, NODE_SERVICE_PORT, NODE_XRAY_PORT, NODE_METHOD, 
-#       NODE_INSTALL_DIR, NODE_DATA_DIR, NODE_CERT_FILE, NODE_CREATED, NODE_UPDATED, NODE_STATUS
+#       NODE_DIR, NODE_DATA, NODE_CERT_FILE, NODE_CREATED, NODE_UPDATED, NODE_STATUS
+# Note: Using NODE_DIR and NODE_DATA to avoid conflict with readonly NODE_INSTALL_DIR constant
+#       NODE_INSTALL_DIR is the base path (/opt), NODE_DIR is the node-specific path (/opt/banana-node)
 parse_node_record() {
     local record="$1"
+    local install_dir_val data_dir_val
     
     IFS='|' read -r NODE_ID NODE_NAME NODE_SERVICE_PORT NODE_XRAY_PORT NODE_METHOD \
-                   NODE_INSTALL_DIR NODE_DATA_DIR NODE_CERT_FILE NODE_CREATED \
+                   install_dir_val data_dir_val NODE_CERT_FILE NODE_CREATED \
                    NODE_UPDATED NODE_STATUS <<< "$record"
     
+    # Export all variables
     export NODE_ID NODE_NAME NODE_SERVICE_PORT NODE_XRAY_PORT NODE_METHOD \
-           NODE_INSTALL_DIR NODE_DATA_DIR NODE_CERT_FILE NODE_CREATED \
-           NODE_UPDATED NODE_STATUS
+           NODE_CERT_FILE NODE_CREATED NODE_UPDATED NODE_STATUS
+    
+    # Use NODE_DIR and NODE_DATA to avoid readonly constant conflict
+    # These are the actual node-specific directories (e.g., /opt/banana-node)
+    NODE_DIR="$install_dir_val"
+    NODE_DATA="$data_dir_val"
+    export NODE_DIR NODE_DATA
 }
 
 # Get node field
