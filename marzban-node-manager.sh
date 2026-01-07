@@ -744,7 +744,7 @@ cmd_update_cli() {
     print_header "Update Marzban Node Manager"
     
     local REPO_RAW_URL="https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main"
-    local INSTALL_DIR="/opt/marzban-node-manager"
+    local CLI_INSTALL_DIR="/opt/marzban-node-manager"
     
     print_info "Current version: ${MANAGER_VERSION}"
     print_info "Checking for updates..."
@@ -752,7 +752,7 @@ cmd_update_cli() {
     
     # Download and check remote version
     local remote_version
-    remote_version=$(curl -sSL "${REPO_RAW_URL}/marzban-node-manager.sh" 2>/dev/null | grep 'MANAGER_VERSION=' | head -1 | sed 's/.*MANAGER_VERSION="\([^"]*\)".*/\1/')
+    remote_version=$(curl -sSL "https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main/marzban-node-manager.sh" 2>/dev/null | awk -F'"' '/MANAGER_VERSION=/{print $2; exit}')
     
     if [[ -z "$remote_version" ]]; then
         print_error "Failed to check for updates. Please check your internet connection."
@@ -780,7 +780,7 @@ cmd_update_cli() {
     # Backup current installation
     print_info "Creating backup..."
     local backup_dir="/tmp/marzban-node-manager-backup-$(date +%Y%m%d_%H%M%S)"
-    cp -r "$INSTALL_DIR" "$backup_dir" 2>/dev/null || true
+    cp -r "$CLI_INSTALL_DIR" "$backup_dir" 2>/dev/null || true
     
     # Download updated files
     local files=("marzban-node-manager.sh" "lib/colors.sh" "lib/utils.sh" "lib/database.sh" "lib/ports.sh" "lib/docker.sh" "lib/systemd.sh")
@@ -788,7 +788,7 @@ cmd_update_cli() {
     
     for file in "${files[@]}"; do
         echo -n "  Downloading ${file}... "
-        if curl -sSL "${REPO_RAW_URL}/${file}" -o "${INSTALL_DIR}/${file}" 2>/dev/null; then
+        if curl -sSL "${REPO_RAW_URL}/${file}" -o "${CLI_INSTALL_DIR}/${file}" 2>/dev/null; then
             echo -e "${COLOR_GREEN}✓${COLOR_RESET}"
         else
             echo -e "${COLOR_RED}✗${COLOR_RESET}"
@@ -799,18 +799,18 @@ cmd_update_cli() {
     if [[ "$failed" == true ]]; then
         print_error "Some files failed to download"
         print_info "Restoring backup..."
-        rm -rf "$INSTALL_DIR"
-        mv "$backup_dir" "$INSTALL_DIR"
+        rm -rf "$CLI_INSTALL_DIR"
+        mv "$backup_dir" "$CLI_INSTALL_DIR"
         exit 1
     fi
     
     # Set permissions
-    chmod +x "${INSTALL_DIR}/marzban-node-manager.sh"
-    chmod +x "${INSTALL_DIR}/lib/"*.sh
+    chmod +x "${CLI_INSTALL_DIR}/marzban-node-manager.sh"
+    chmod +x "${CLI_INSTALL_DIR}/lib/"*.sh
     
     # Run database migrations
     print_info "Running database migrations..."
-    source "${INSTALL_DIR}/lib/database.sh"
+    source "${CLI_INSTALL_DIR}/lib/database.sh"
     db_migrate
     
     # Clean up backup
