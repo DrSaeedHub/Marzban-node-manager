@@ -21,7 +21,7 @@ get_script_dir() {
 # =============================================================================
 
 readonly MANAGER_NAME="marzban-node-manager"
-readonly MANAGER_VERSION="1.0.3"
+readonly MANAGER_VERSION="1.0.4"
 readonly MANAGER_INSTALL_DIR="/opt/marzban-node-manager"
 readonly MANAGER_DATA_DIR="/var/lib/marzban-node-manager"
 readonly MANAGER_DB_FILE="${MANAGER_DATA_DIR}/nodes.db"
