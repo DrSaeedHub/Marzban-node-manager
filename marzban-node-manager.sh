@@ -743,7 +743,8 @@ cmd_update_cli() {
     
     print_header "Update Marzban Node Manager"
     
-    local REPO_RAW_URL="https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main"
+    # Use jsdelivr CDN - it has faster cache updates than raw.githubusercontent.com
+    local REPO_RAW_URL="https://cdn.jsdelivr.net/gh/DrSaeedHub/Marzban-node-manager@main"
     local CLI_INSTALL_DIR="/opt/marzban-node-manager"
     
     print_info "Current version: ${MANAGER_VERSION}"
@@ -751,8 +752,9 @@ cmd_update_cli() {
     echo ""
     
     # Download and check remote version from utils.sh where MANAGER_VERSION is defined
+    # Use jsdelivr CDN - it has faster cache updates than raw.githubusercontent.com
     local remote_version
-    remote_version=$(curl -sSL "https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main/lib/utils.sh" 2>/dev/null | grep 'readonly MANAGER_VERSION=' | cut -d'"' -f2)
+    remote_version=$(curl -sSL "${REPO_RAW_URL}/lib/utils.sh" 2>/dev/null | grep 'readonly MANAGER_VERSION=' | cut -d'"' -f2)
     
     if [[ -z "$remote_version" ]]; then
         print_error "Failed to check for updates. Please check your internet connection."
