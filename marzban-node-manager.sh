@@ -41,6 +41,7 @@ XRAY_PORT=""
 METHOD="docker"
 CERT_PATH=""
 CERT_CONTENT=""
+INBOUNDS=""
 YES_MODE=false
 FOLLOW_LOGS=false
 
@@ -74,6 +75,7 @@ show_help() {
     echo "  -m, --method        Installation method: docker (default) or normal"
     echo "  -c, --cert          Path to ssl_client_cert.pem file"
     echo "  --cert-content      Certificate content directly (for automation)"
+    echo "  -i, --inbounds      Comma-separated inbound names (case-sensitive)"
     echo "  -y, --yes           Non-interactive mode (skip confirmations)"
     echo "  -f, --follow        Follow logs (for logs operation)"
     echo "  -h, --help          Show this help message"
@@ -84,6 +86,9 @@ show_help() {
     echo ""
     echo "  # Install with custom ports"
     echo "  marzban-node-manager install -n mynode -s 62060 -x 62061 -c cert.pem"
+    echo ""
+    echo "  # Install with specific inbounds (case-sensitive)"
+    echo "  marzban-node-manager install -n mynode -c cert.pem -i 'VLESS TCP REALITY, VMESS TCP'"
     echo ""
     echo "  # Install using normal (systemd) method"
     echo "  marzban-node-manager install -n mynode -m normal -c cert.pem"
@@ -136,6 +141,10 @@ parse_args() {
                 ;;
             --cert-content)
                 CERT_CONTENT="$2"
+                shift 2
+                ;;
+            -i|--inbounds)
+                INBOUNDS="$2"
                 shift 2
                 ;;
             -y|--yes)
@@ -216,6 +225,11 @@ cmd_install() {
     print_kv "Method" "$METHOD"
     print_kv "SERVICE_PORT" "$SERVICE_PORT"
     print_kv "XRAY_API_PORT" "$XRAY_PORT"
+    if [[ -n "$INBOUNDS" ]]; then
+        print_kv "INBOUNDS" "$INBOUNDS"
+    else
+        print_kv "INBOUNDS" "(all inbounds)"
+    fi
     echo ""
     
     # Handle certificate
@@ -257,14 +271,14 @@ cmd_install() {
     
     # Install based on method
     if [[ "$METHOD" == "docker" ]]; then
-        docker_node_install "$NODE_NAME" "$SERVICE_PORT" "$XRAY_PORT" "$CERT_CONTENT"
+        docker_node_install "$NODE_NAME" "$SERVICE_PORT" "$XRAY_PORT" "$CERT_CONTENT" "$INBOUNDS"
     else
-        systemd_node_install "$NODE_NAME" "$SERVICE_PORT" "$XRAY_PORT" "$CERT_CONTENT"
+        systemd_node_install "$NODE_NAME" "$SERVICE_PORT" "$XRAY_PORT" "$CERT_CONTENT" "$INBOUNDS"
     fi
     
     if [[ $? -eq 0 ]]; then
         # Record in database
-        db_node_create "$NODE_NAME" "$SERVICE_PORT" "$XRAY_PORT" "$METHOD" "$install_dir" "$data_dir" "$cert_file"
+        db_node_create "$NODE_NAME" "$SERVICE_PORT" "$XRAY_PORT" "$METHOD" "$install_dir" "$data_dir" "$cert_file" "$INBOUNDS"
         
         echo ""
         print_success "Node '$NODE_NAME' installed successfully!"
@@ -375,11 +389,18 @@ cmd_edit() {
     print_kv "Method" "$NODE_METHOD"
     print_kv "SERVICE_PORT" "$NODE_SERVICE_PORT"
     print_kv "XRAY_API_PORT" "$NODE_XRAY_PORT"
+    if [[ -n "$NODE_INBOUNDS" ]]; then
+        print_kv "INBOUNDS" "$NODE_INBOUNDS"
+    else
+        print_kv "INBOUNDS" "(all inbounds)"
+    fi
     echo ""
     
     # Get new values
     local new_service_port="$SERVICE_PORT"
     local new_xray_port="$XRAY_PORT"
+    local new_inbounds="$INBOUNDS"
+    local inbounds_changed=false
     
     if [[ -z "$new_service_port" ]]; then
         prompt_port "Enter new SERVICE_PORT" "$NODE_SERVICE_PORT" "$NODE_NAME" "SERVICE_PORT"
@@ -391,6 +412,18 @@ cmd_edit() {
         new_xray_port="$SELECTED_PORT"
     fi
     
+    # Handle inbounds - if not provided via CLI, prompt interactively
+    if [[ -z "$new_inbounds" && "$YES_MODE" != true ]]; then
+        local current_inbounds="${NODE_INBOUNDS:-}"
+        prompt_input "Enter INBOUNDS (comma-separated, empty for all)" "$current_inbounds"
+        new_inbounds="$REPLY"
+        if [[ "$new_inbounds" != "$NODE_INBOUNDS" ]]; then
+            inbounds_changed=true
+        fi
+    elif [[ -n "$new_inbounds" && "$new_inbounds" != "$NODE_INBOUNDS" ]]; then
+        inbounds_changed=true
+    fi
+    
     # Validate new port pair
     if ! validate_port_pair "$new_service_port" "$new_xray_port" "$NODE_NAME"; then
         exit 1
@@ -400,6 +433,11 @@ cmd_edit() {
     print_subheader "New Configuration"
     print_kv "SERVICE_PORT" "$new_service_port"
     print_kv "XRAY_API_PORT" "$new_xray_port"
+    if [[ -n "$new_inbounds" ]]; then
+        print_kv "INBOUNDS" "$new_inbounds"
+    else
+        print_kv "INBOUNDS" "(all inbounds)"
+    fi
     echo ""
     
     if [[ "$YES_MODE" != true ]]; then
@@ -413,13 +451,22 @@ cmd_edit() {
     if [[ "$NODE_METHOD" == "docker" ]]; then
         local compose_file="${NODE_DIR}/docker-compose.yml"
         update_compose_ports "$compose_file" "$new_service_port" "$new_xray_port"
+        if [[ "$inbounds_changed" == true || -n "$INBOUNDS" ]]; then
+            update_compose_inbounds "$compose_file" "$new_inbounds"
+        fi
     else
         local env_file="${NODE_DIR}/.env"
         update_env_ports "$env_file" "$new_service_port" "$new_xray_port"
+        if [[ "$inbounds_changed" == true || -n "$INBOUNDS" ]]; then
+            update_env_inbounds "$env_file" "$new_inbounds"
+        fi
     fi
     
     # Update database
     db_node_update_ports "$NODE_NAME" "$new_service_port" "$new_xray_port"
+    if [[ "$inbounds_changed" == true || -n "$INBOUNDS" ]]; then
+        db_node_update "$NODE_NAME" "inbounds" "$new_inbounds"
+    fi
     
     # Restart node
     print_info "Restarting node to apply changes..."
@@ -470,6 +517,11 @@ cmd_status() {
         print_kv "Method" "$NODE_METHOD"
         print_kv "SERVICE_PORT" "$NODE_SERVICE_PORT"
         print_kv "XRAY_API_PORT" "$NODE_XRAY_PORT"
+        if [[ -n "$NODE_INBOUNDS" ]]; then
+            print_kv "INBOUNDS" "$NODE_INBOUNDS"
+        else
+            print_kv "INBOUNDS" "(all inbounds)"
+        fi
         print_kv "Install Dir" "$NODE_DIR"
         print_kv "Data Dir" "$NODE_DATA"
         print_kv "Container/PID" "$identifier"

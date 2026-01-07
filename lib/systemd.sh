@@ -42,12 +42,13 @@ EOF
 }
 
 # Generate .env file content
-# Usage: generate_env_file <service_port> <xray_port> <data_dir> <cert_file>
+# Usage: generate_env_file <service_port> <xray_port> <data_dir> <cert_file> [inbounds]
 generate_env_file() {
     local service_port="$1"
     local xray_port="$2"
     local data_dir="$3"
     local cert_file="$4"
+    local inbounds="${5:-}"
     
     cat <<EOF
 # Marzban Node Configuration
@@ -67,6 +68,9 @@ SERVICE_PROTOCOL=rest
 # Xray Configuration
 XRAY_EXECUTABLE_PATH=/usr/local/bin/xray
 XRAY_ASSETS_PATH=/usr/local/share/xray
+
+# Inbound Filter (comma-separated, case-sensitive)
+INBOUNDS=${inbounds}
 
 # Debug Mode
 DEBUG=false
@@ -95,10 +99,11 @@ create_env_file() {
     local xray_port="$3"
     local data_dir="$4"
     local cert_file="$5"
+    local inbounds="${6:-}"
     
     local env_file="${install_dir}/.env"
     
-    generate_env_file "$service_port" "$xray_port" "$data_dir" "$cert_file" > "$env_file"
+    generate_env_file "$service_port" "$xray_port" "$data_dir" "$cert_file" "$inbounds" > "$env_file"
     chmod 600 "$env_file"
     
     log_info "Created .env file: $env_file"
@@ -120,6 +125,27 @@ update_env_ports() {
     sed -i "s/^XRAY_API_PORT=.*/XRAY_API_PORT=${xray_port}/" "$env_file"
     
     log_info "Updated env file ports: SERVICE=$service_port, XRAY=$xray_port"
+    return 0
+}
+
+# Update .env file inbounds
+update_env_inbounds() {
+    local env_file="$1"
+    local inbounds="$2"
+    
+    if [[ ! -f "$env_file" ]]; then
+        print_error "Env file not found: $env_file"
+        return 1
+    fi
+    
+    # Update or add INBOUNDS line
+    if grep -q "^INBOUNDS=" "$env_file"; then
+        sed -i "s/^INBOUNDS=.*/INBOUNDS=${inbounds}/" "$env_file"
+    else
+        echo "INBOUNDS=${inbounds}" >> "$env_file"
+    fi
+    
+    log_info "Updated env file inbounds: $inbounds"
     return 0
 }
 
@@ -318,12 +344,13 @@ install_python_deps() {
 }
 
 # Install a node via normal (systemd) method
-# Usage: systemd_node_install <node_name> <service_port> <xray_port> <cert_content>
+# Usage: systemd_node_install <node_name> <service_port> <xray_port> <cert_content> [inbounds]
 systemd_node_install() {
     local node_name="$1"
     local service_port="$2"
     local xray_port="$3"
     local cert_content="$4"
+    local inbounds="${5:-}"
     
     local install_dir="${NODE_INSTALL_DIR}/${node_name}"
     local data_dir="${NODE_DATA_BASE_DIR}/${node_name}"
@@ -374,7 +401,7 @@ systemd_node_install() {
     echo "$cert_content" > "$cert_file"
     chmod 600 "$cert_file"
     
-    create_env_file "$install_dir" "$service_port" "$xray_port" "$data_dir" "$cert_file"
+    create_env_file "$install_dir" "$service_port" "$xray_port" "$data_dir" "$cert_file" "$inbounds"
     
     # Step 7: Create and start systemd service
     print_step "7/7" "Setting up systemd service..."

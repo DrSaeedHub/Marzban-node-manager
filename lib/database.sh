@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     install_dir TEXT NOT NULL,
     data_dir TEXT NOT NULL,
     cert_file TEXT,
+    inbounds TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'installed'
@@ -45,12 +46,26 @@ CREATE INDEX IF NOT EXISTS idx_nodes_service_port ON nodes(service_port);
 CREATE INDEX IF NOT EXISTS idx_nodes_xray_api_port ON nodes(xray_api_port);
 EOF
     
+    # Run migrations for existing databases
+    db_migrate
+    
     if [[ $? -eq 0 ]]; then
         log_info "Database initialized at $DB_FILE"
         return 0
     else
         log_error "Failed to initialize database"
         return 1
+    fi
+}
+
+# Run database migrations for schema updates
+db_migrate() {
+    # Check if inbounds column exists, add if not (for existing databases)
+    local has_inbounds=$(sqlite3 "$DB_FILE" "PRAGMA table_info(nodes);" | grep -c "inbounds" || echo "0")
+    
+    if [[ "$has_inbounds" -eq 0 ]]; then
+        sqlite3 "$DB_FILE" "ALTER TABLE nodes ADD COLUMN inbounds TEXT DEFAULT '';" 2>/dev/null || true
+        log_info "Added inbounds column to nodes table"
     fi
 }
 
@@ -71,7 +86,7 @@ db_ensure() {
 # =============================================================================
 
 # Create a new node record
-# Usage: db_node_create <name> <service_port> <xray_api_port> <method> <install_dir> <data_dir> [cert_file]
+# Usage: db_node_create <name> <service_port> <xray_api_port> <method> <install_dir> <data_dir> [cert_file] [inbounds]
 db_node_create() {
     local name="$1"
     local service_port="$2"
@@ -80,12 +95,13 @@ db_node_create() {
     local install_dir="$5"
     local data_dir="$6"
     local cert_file="${7:-}"
+    local inbounds="${8:-}"
     
     db_ensure
     
     sqlite3 "$DB_FILE" <<EOF
-INSERT INTO nodes (name, service_port, xray_api_port, method, install_dir, data_dir, cert_file)
-VALUES ('$name', $service_port, $xray_api_port, '$method', '$install_dir', '$data_dir', '$cert_file');
+INSERT INTO nodes (name, service_port, xray_api_port, method, install_dir, data_dir, cert_file, inbounds)
+VALUES ('$name', $service_port, $xray_api_port, '$method', '$install_dir', '$data_dir', '$cert_file', '$inbounds');
 EOF
     
     if [[ $? -eq 0 ]]; then
@@ -99,14 +115,14 @@ EOF
 
 # Get node by name
 # Usage: db_node_get <name>
-# Output: id|name|service_port|xray_api_port|method|install_dir|data_dir|cert_file|created_at|updated_at|status
+# Output: id|name|service_port|xray_api_port|method|install_dir|data_dir|cert_file|inbounds|created_at|updated_at|status
 db_node_get() {
     local name="$1"
     
     db_ensure
     
     sqlite3 -separator '|' "$DB_FILE" <<EOF
-SELECT id, name, service_port, xray_api_port, method, install_dir, data_dir, cert_file, created_at, updated_at, status
+SELECT id, name, service_port, xray_api_port, method, install_dir, data_dir, cert_file, inbounds, created_at, updated_at, status
 FROM nodes
 WHERE name = '$name';
 EOF
@@ -119,7 +135,7 @@ db_node_get_by_id() {
     db_ensure
     
     sqlite3 -separator '|' "$DB_FILE" <<EOF
-SELECT id, name, service_port, xray_api_port, method, install_dir, data_dir, cert_file, created_at, updated_at, status
+SELECT id, name, service_port, xray_api_port, method, install_dir, data_dir, cert_file, inbounds, created_at, updated_at, status
 FROM nodes
 WHERE id = $id;
 EOF
@@ -165,7 +181,7 @@ db_node_update() {
     
     # Validate field name to prevent SQL injection
     case "$field" in
-        service_port|xray_api_port|method|install_dir|data_dir|cert_file|status)
+        service_port|xray_api_port|method|install_dir|data_dir|cert_file|inbounds|status)
             ;;
         *)
             log_error "Invalid field: $field"
@@ -346,7 +362,7 @@ db_config_delete() {
 # Parse node record into variables
 # Usage: parse_node_record <record>
 # Sets: NODE_ID, NODE_NAME, NODE_SERVICE_PORT, NODE_XRAY_PORT, NODE_METHOD, 
-#       NODE_DIR, NODE_DATA, NODE_CERT_FILE, NODE_CREATED, NODE_UPDATED, NODE_STATUS
+#       NODE_DIR, NODE_DATA, NODE_CERT_FILE, NODE_INBOUNDS, NODE_CREATED, NODE_UPDATED, NODE_STATUS
 # Note: Using NODE_DIR and NODE_DATA to avoid conflict with readonly NODE_INSTALL_DIR constant
 #       NODE_INSTALL_DIR is the base path (/opt), NODE_DIR is the node-specific path (/opt/banana-node)
 parse_node_record() {
@@ -354,12 +370,12 @@ parse_node_record() {
     local install_dir_val data_dir_val
     
     IFS='|' read -r NODE_ID NODE_NAME NODE_SERVICE_PORT NODE_XRAY_PORT NODE_METHOD \
-                   install_dir_val data_dir_val NODE_CERT_FILE NODE_CREATED \
+                   install_dir_val data_dir_val NODE_CERT_FILE NODE_INBOUNDS NODE_CREATED \
                    NODE_UPDATED NODE_STATUS <<< "$record"
     
     # Export all variables
     export NODE_ID NODE_NAME NODE_SERVICE_PORT NODE_XRAY_PORT NODE_METHOD \
-           NODE_CERT_FILE NODE_CREATED NODE_UPDATED NODE_STATUS
+           NODE_CERT_FILE NODE_INBOUNDS NODE_CREATED NODE_UPDATED NODE_STATUS
     
     # Use NODE_DIR and NODE_DATA to avoid readonly constant conflict
     # These are the actual node-specific directories (e.g., /opt/banana-node)

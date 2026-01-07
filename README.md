@@ -77,6 +77,7 @@ marzban-node-manager status -n mynode
 | `--method` | `-m` | Installation method: `docker` (default) or `normal` |
 | `--cert` | `-c` | Path to ssl_client_cert.pem file |
 | `--cert-content` | | Certificate content directly (for automation) |
+| `--inbounds` | `-i` | Comma-separated inbound names (case-sensitive) |
 | `--yes` | `-y` | Non-interactive mode (skip confirmations) |
 | `--follow` | `-f` | Follow logs (for logs operation) |
 | `--help` | `-h` | Show help message |
@@ -94,7 +95,30 @@ marzban-node-manager install -n node2 -c cert2.pem -y
 
 # Install third node with specific ports
 marzban-node-manager install -n node3 -s 63000 -x 63001 -c cert3.pem -y
+
+# Install node with specific inbounds (case-sensitive, comma-separated)
+marzban-node-manager install -n node4 -c cert4.pem -i "VLESS TCP REALITY, VMESS TCP" -y
 ```
+
+### Filtering Inbounds
+
+You can specify which inbounds from the Marzban panel a node should handle. This is useful for:
+- Load balancing traffic across multiple nodes
+- Dedicating nodes to specific protocols
+- Separating high-traffic inbounds
+
+```bash
+# Install node that only handles specific inbounds
+marzban-node-manager install -n vless-node -c cert.pem -i "VLESS TCP REALITY"
+
+# Update existing node's inbounds
+marzban-node-manager edit -n vless-node -i "VLESS TCP REALITY, VLESS WS TLS"
+
+# Remove inbound filter (handle all inbounds)
+marzban-node-manager edit -n vless-node -i ""
+```
+
+**Note:** Inbound names are case-sensitive and must match exactly with the names in your Marzban panel.
 
 ### Managing Nodes
 

@@ -153,13 +153,14 @@ setup_docker_apt_repo_minimal() {
 # =============================================================================
 
 # Generate docker-compose.yml content for a node
-# Usage: generate_compose_file <node_name> <service_port> <xray_port> <data_dir> <cert_file>
+# Usage: generate_compose_file <node_name> <service_port> <xray_port> <data_dir> <cert_file> [inbounds]
 generate_compose_file() {
     local node_name="$1"
     local service_port="$2"
     local xray_port="$3"
     local data_dir="$4"
     local cert_file="$5"
+    local inbounds="${6:-}"
     
     cat <<EOF
 services:
@@ -175,13 +176,21 @@ services:
       SSL_CERT_FILE: "/var/lib/marzban-node/ssl_cert.pem"
       SSL_KEY_FILE: "/var/lib/marzban-node/ssl_key.pem"
       SERVICE_PROTOCOL: "rest"
+EOF
+
+    # Add INBOUNDS if specified
+    if [[ -n "$inbounds" ]]; then
+        echo "      INBOUNDS: \"${inbounds}\""
+    fi
+
+    cat <<EOF
     volumes:
       - ${data_dir}:/var/lib/marzban-node
 EOF
 }
 
 # Create docker-compose.yml file
-# Usage: create_compose_file <install_dir> <node_name> <service_port> <xray_port> <data_dir> <cert_file>
+# Usage: create_compose_file <install_dir> <node_name> <service_port> <xray_port> <data_dir> <cert_file> [inbounds]
 create_compose_file() {
     local install_dir="$1"
     local node_name="$2"
@@ -189,12 +198,13 @@ create_compose_file() {
     local xray_port="$4"
     local data_dir="$5"
     local cert_file="$6"
+    local inbounds="${7:-}"
     
     local compose_file="${install_dir}/docker-compose.yml"
     
     ensure_dir "$install_dir"
     
-    generate_compose_file "$node_name" "$service_port" "$xray_port" "$data_dir" "$cert_file" > "$compose_file"
+    generate_compose_file "$node_name" "$service_port" "$xray_port" "$data_dir" "$cert_file" "$inbounds" > "$compose_file"
     
     if [[ $? -eq 0 ]]; then
         log_info "Created docker-compose.yml at $compose_file"
@@ -221,6 +231,29 @@ update_compose_ports() {
     sed -i "s/XRAY_API_PORT: \"[0-9]*\"/XRAY_API_PORT: \"${xray_port}\"/" "$compose_file"
     
     log_info "Updated compose file ports: SERVICE=$service_port, XRAY=$xray_port"
+    return 0
+}
+
+# Update docker-compose.yml inbounds
+update_compose_inbounds() {
+    local compose_file="$1"
+    local inbounds="$2"
+    
+    if [[ ! -f "$compose_file" ]]; then
+        print_error "Compose file not found: $compose_file"
+        return 1
+    fi
+    
+    # Remove existing INBOUNDS line if present
+    sed -i '/INBOUNDS:/d' "$compose_file"
+    
+    # Add INBOUNDS if not empty
+    if [[ -n "$inbounds" ]]; then
+        # Add INBOUNDS after SERVICE_PROTOCOL line
+        sed -i "/SERVICE_PROTOCOL:/a\\      INBOUNDS: \"${inbounds}\"" "$compose_file"
+    fi
+    
+    log_info "Updated compose file inbounds: $inbounds"
     return 0
 }
 
@@ -405,12 +438,13 @@ docker_node_info() {
 # =============================================================================
 
 # Install a node via Docker
-# Usage: docker_node_install <node_name> <service_port> <xray_port> <cert_content>
+# Usage: docker_node_install <node_name> <service_port> <xray_port> <cert_content> [inbounds]
 docker_node_install() {
     local node_name="$1"
     local service_port="$2"
     local xray_port="$3"
     local cert_content="$4"
+    local inbounds="${5:-}"
     
     local install_dir="${NODE_INSTALL_DIR}/${node_name}"
     local data_dir="${NODE_DATA_BASE_DIR}/${node_name}"
@@ -441,7 +475,7 @@ docker_node_install() {
     
     # Create docker-compose.yml
     print_step "3/4" "Creating docker-compose.yml..."
-    create_compose_file "$install_dir" "$node_name" "$service_port" "$xray_port" "$data_dir" "$cert_file"
+    create_compose_file "$install_dir" "$node_name" "$service_port" "$xray_port" "$data_dir" "$cert_file" "$inbounds"
     
     # Pull image and start
     print_step "4/4" "Starting container..."
