@@ -752,7 +752,7 @@ cmd_update_cli() {
     
     # Download and check remote version
     local remote_version
-    remote_version=$(curl -sSL "${REPO_RAW_URL}/marzban-node-manager.sh" 2>/dev/null | grep -oP 'MANAGER_VERSION="\K[^"]+' | head -1)
+    remote_version=$(curl -sSL "${REPO_RAW_URL}/marzban-node-manager.sh" 2>/dev/null | grep 'MANAGER_VERSION=' | head -1 | sed 's/.*MANAGER_VERSION="\([^"]*\)".*/\1/')
     
     if [[ -z "$remote_version" ]]; then
         print_error "Failed to check for updates. Please check your internet connection."
