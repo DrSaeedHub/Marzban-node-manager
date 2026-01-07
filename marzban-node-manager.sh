@@ -750,9 +750,9 @@ cmd_update_cli() {
     print_info "Checking for updates..."
     echo ""
     
-    # Download and check remote version
+    # Download and check remote version from utils.sh where MANAGER_VERSION is defined
     local remote_version
-    remote_version=$(curl -sSL "https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main/marzban-node-manager.sh" 2>/dev/null | awk -F'"' '/MANAGER_VERSION=/{print $2; exit}')
+    remote_version=$(curl -sSL "https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main/lib/utils.sh" 2>/dev/null | grep 'readonly MANAGER_VERSION=' | cut -d'"' -f2)
     
     if [[ -z "$remote_version" ]]; then
         print_error "Failed to check for updates. Please check your internet connection."
