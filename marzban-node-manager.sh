@@ -819,6 +819,9 @@ cmd_update_cli() {
     echo ""
     print_success "CLI updated to version ${remote_version}!"
     print_info "Run 'marzban-node-manager --version' to verify"
+    
+    # Exit immediately to prevent bash from continuing with modified script
+    exit 0
 }
 
 # =============================================================================
