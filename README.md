@@ -65,6 +65,7 @@ marzban-node-manager status -n mynode
 | `logs` | View node logs |
 | `list` | List all managed nodes |
 | `update` | Update node image/code |
+| `update-cli` | Update CLI to latest version |
 | `uninstall-cli` | Remove the CLI tool itself |
 
 ### Options
@@ -244,6 +245,16 @@ The manager uses SQLite to track nodes:
 ├── ssl_client_cert.pem              # Client certificate
 ├── ssl_cert.pem                     # Server certificate (auto-generated)
 └── ssl_key.pem                      # Server key (auto-generated)
+```
+
+## Updating the CLI
+
+```bash
+# Update CLI to latest version (recommended)
+marzban-node-manager update-cli
+
+# Or use the installer script
+bash <(curl -Ls https://...install-cli.sh) --update
 ```
 
 ## Installer Options

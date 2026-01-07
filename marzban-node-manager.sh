@@ -66,6 +66,7 @@ show_help() {
     echo "  logs            View node logs"
     echo "  list            List all managed nodes"
     echo "  update          Update node image/code"
+    echo "  update-cli      Update CLI to latest version"
     echo "  uninstall-cli   Remove the CLI tool itself"
     echo ""
     color_echo cyan "Options:"
@@ -102,6 +103,9 @@ show_help() {
     echo "  # View logs"
     echo "  marzban-node-manager logs -n mynode -f"
     echo ""
+    echo "  # Update CLI to latest version"
+    echo "  marzban-node-manager update-cli"
+    echo ""
 }
 
 show_version() {
@@ -115,7 +119,7 @@ show_version() {
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            install|uninstall|edit|status|start|stop|restart|logs|list|update|uninstall-cli)
+            install|uninstall|edit|status|start|stop|restart|logs|list|update|update-cli|uninstall-cli)
                 OPERATION="$1"
                 shift
                 ;;
@@ -731,6 +735,93 @@ cmd_update() {
 }
 
 # =============================================================================
+# Update CLI Operation
+# =============================================================================
+
+cmd_update_cli() {
+    check_root
+    
+    print_header "Update Marzban Node Manager"
+    
+    local REPO_RAW_URL="https://raw.githubusercontent.com/DrSaeedHub/Marzban-node-manager/main"
+    local INSTALL_DIR="/opt/marzban-node-manager"
+    
+    print_info "Current version: ${MANAGER_VERSION}"
+    print_info "Checking for updates..."
+    echo ""
+    
+    # Download and check remote version
+    local remote_version
+    remote_version=$(curl -sSL "${REPO_RAW_URL}/marzban-node-manager.sh" 2>/dev/null | grep -oP 'MANAGER_VERSION="\K[^"]+' | head -1)
+    
+    if [[ -z "$remote_version" ]]; then
+        print_error "Failed to check for updates. Please check your internet connection."
+        exit 1
+    fi
+    
+    print_info "Latest version: ${remote_version}"
+    echo ""
+    
+    if [[ "$MANAGER_VERSION" == "$remote_version" ]]; then
+        print_success "You are already running the latest version!"
+        exit 0
+    fi
+    
+    if [[ "$YES_MODE" != true ]]; then
+        if ! confirm "Update to version ${remote_version}?"; then
+            print_warning "Update cancelled"
+            exit 0
+        fi
+    fi
+    
+    echo ""
+    print_subheader "Downloading Updates"
+    
+    # Backup current installation
+    print_info "Creating backup..."
+    local backup_dir="/tmp/marzban-node-manager-backup-$(date +%Y%m%d_%H%M%S)"
+    cp -r "$INSTALL_DIR" "$backup_dir" 2>/dev/null || true
+    
+    # Download updated files
+    local files=("marzban-node-manager.sh" "lib/colors.sh" "lib/utils.sh" "lib/database.sh" "lib/ports.sh" "lib/docker.sh" "lib/systemd.sh")
+    local failed=false
+    
+    for file in "${files[@]}"; do
+        echo -n "  Downloading ${file}... "
+        if curl -sSL "${REPO_RAW_URL}/${file}" -o "${INSTALL_DIR}/${file}" 2>/dev/null; then
+            echo -e "${COLOR_GREEN}✓${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}✗${COLOR_RESET}"
+            failed=true
+        fi
+    done
+    
+    if [[ "$failed" == true ]]; then
+        print_error "Some files failed to download"
+        print_info "Restoring backup..."
+        rm -rf "$INSTALL_DIR"
+        mv "$backup_dir" "$INSTALL_DIR"
+        exit 1
+    fi
+    
+    # Set permissions
+    chmod +x "${INSTALL_DIR}/marzban-node-manager.sh"
+    chmod +x "${INSTALL_DIR}/lib/"*.sh
+    
+    # Run database migrations
+    print_info "Running database migrations..."
+    source "${INSTALL_DIR}/lib/database.sh"
+    db_migrate
+    
+    # Clean up backup
+    rm -rf "$backup_dir"
+    
+    echo ""
+    print_success "CLI updated to version ${remote_version}!"
+    print_info "Run 'marzban-node-manager --version' to verify"
+}
+
+# =============================================================================
 # Uninstall CLI Operation
 # =============================================================================
 
@@ -856,6 +947,9 @@ main() {
             ;;
         update)
             cmd_update
+            ;;
+        update-cli)
+            cmd_update_cli
             ;;
         uninstall-cli)
             cmd_uninstall_cli
