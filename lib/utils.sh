@@ -183,18 +183,17 @@ install_docker() {
 }
 
 # Detect docker compose command
+# Note: Full implementation is in docker.sh, this is a basic fallback
 detect_compose() {
     if docker compose version >/dev/null 2>&1; then
         COMPOSE_CMD="docker compose"
-    elif command_exists docker-compose; then
-        COMPOSE_CMD="docker-compose"
-    else
-        print_error "Docker Compose not found"
-        return 1
+        export COMPOSE_CMD
+        return 0
     fi
     
-    export COMPOSE_CMD
-    return 0
+    print_error "Docker Compose V2 not found"
+    print_info "Run the installer again or install manually"
+    return 1
 }
 
 # =============================================================================

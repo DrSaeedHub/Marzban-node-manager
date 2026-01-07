@@ -11,6 +11,91 @@ source "${SCRIPT_DIR}/utils.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/colors.sh" 2>/dev/null || true
 
 # =============================================================================
+# Docker Compose Detection (V2 preferred)
+# =============================================================================
+
+# Detect and validate docker compose command
+# Prefers Docker Compose V2 (docker compose) over legacy V1 (docker-compose)
+detect_compose() {
+    # First, try Docker Compose V2 (plugin)
+    if docker compose version >/dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+        export COMPOSE_CMD
+        return 0
+    fi
+    
+    # Check for legacy docker-compose (V1)
+    if command -v docker-compose >/dev/null 2>&1; then
+        local version=$(docker-compose version --short 2>/dev/null || echo "0")
+        
+        # V1 versions < 2.0 have compatibility issues with newer Docker
+        if [[ "$version" == 1.* ]]; then
+            print_warning "Legacy docker-compose v${version} detected"
+            print_warning "This version has known compatibility issues with newer Docker"
+            print_info "Installing Docker Compose V2 plugin..."
+            
+            if install_compose_v2; then
+                COMPOSE_CMD="docker compose"
+                export COMPOSE_CMD
+                return 0
+            else
+                print_error "Failed to install Docker Compose V2"
+                print_error "Please install manually: https://docs.docker.com/compose/install/"
+                return 1
+            fi
+        fi
+        
+        COMPOSE_CMD="docker-compose"
+        export COMPOSE_CMD
+        return 0
+    fi
+    
+    # Neither found, try to install V2
+    print_info "Docker Compose not found, installing..."
+    if install_compose_v2; then
+        COMPOSE_CMD="docker compose"
+        export COMPOSE_CMD
+        return 0
+    fi
+    
+    print_error "Docker Compose not found and installation failed"
+    return 1
+}
+
+# Install Docker Compose V2 plugin
+install_compose_v2() {
+    local compose_dir="/usr/local/lib/docker/cli-plugins"
+    local compose_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)"
+    
+    mkdir -p "$compose_dir"
+    
+    if curl -SL "$compose_url" -o "${compose_dir}/docker-compose" 2>/dev/null; then
+        chmod +x "${compose_dir}/docker-compose"
+        
+        # Verify installation
+        if docker compose version >/dev/null 2>&1; then
+            print_success "Docker Compose V2 installed"
+            return 0
+        fi
+    fi
+    
+    # Alternative: try user-level installation
+    local user_compose_dir="${HOME}/.docker/cli-plugins"
+    mkdir -p "$user_compose_dir"
+    
+    if curl -SL "$compose_url" -o "${user_compose_dir}/docker-compose" 2>/dev/null; then
+        chmod +x "${user_compose_dir}/docker-compose"
+        
+        if docker compose version >/dev/null 2>&1; then
+            print_success "Docker Compose V2 installed (user-level)"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# =============================================================================
 # Docker Compose File Generation
 # =============================================================================
 

@@ -165,7 +165,7 @@ command_exists() {
 # =============================================================================
 
 update_package_manager() {
-    print_step "1/6" "Updating package manager..."
+    print_step "1/7" "Updating package manager..."
     eval "$PKG_UPDATE" >/dev/null 2>&1
     print_success "Package manager updated"
 }
@@ -181,7 +181,7 @@ install_package() {
 }
 
 install_sqlite() {
-    print_step "2/6" "Checking SQLite..."
+    print_step "2/7" "Checking SQLite..."
     
     if command_exists sqlite3; then
         print_success "SQLite already installed ($(sqlite3 --version | awk '{print $1}'))"
@@ -214,7 +214,7 @@ install_sqlite() {
 }
 
 install_curl() {
-    print_step "3/6" "Checking curl..."
+    print_step "3/7" "Checking curl..."
     
     if command_exists curl; then
         print_success "curl already installed"
@@ -233,7 +233,7 @@ install_curl() {
 }
 
 install_jq() {
-    print_step "4/6" "Checking jq..."
+    print_step "4/7" "Checking jq..."
     
     if command_exists jq; then
         print_success "jq already installed"
@@ -251,7 +251,7 @@ install_jq() {
 }
 
 install_git() {
-    print_step "5/6" "Checking git..."
+    print_step "5/7" "Checking git..."
     
     if command_exists git; then
         print_success "git already installed"
@@ -270,7 +270,7 @@ install_git() {
 
 install_docker() {
     echo ""
-    print_step "6/6" "Checking Docker..."
+    print_step "6/7" "Checking Docker..."
     
     if command_exists docker; then
         print_success "Docker already installed ($(docker --version | awk '{print $3}' | tr -d ','))"
@@ -284,19 +284,109 @@ install_docker() {
             systemctl start docker >/dev/null 2>&1 || true
             systemctl enable docker >/dev/null 2>&1 || true
         fi
+    else
+        print_info "Installing Docker..."
+        
+        if curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; then
+            systemctl start docker >/dev/null 2>&1 || true
+            systemctl enable docker >/dev/null 2>&1 || true
+            print_success "Docker installed and started"
+        else
+            print_error "Failed to install Docker"
+            print_info "You can still use the 'normal' installation method without Docker"
+            return 0
+        fi
+    fi
+    
+    # Check and install Docker Compose V2
+    install_docker_compose_v2
+}
+
+install_docker_compose_v2() {
+    print_step "7/7" "Checking Docker Compose V2..."
+    
+    # Check if docker compose (V2) is available
+    if docker compose version >/dev/null 2>&1; then
+        local version=$(docker compose version --short 2>/dev/null)
+        print_success "Docker Compose V2 already installed (${version})"
         return 0
     fi
     
-    print_info "Installing Docker..."
-    
-    if curl -fsSL https://get.docker.com | sh >/dev/null 2>&1; then
-        systemctl start docker >/dev/null 2>&1 || true
-        systemctl enable docker >/dev/null 2>&1 || true
-        print_success "Docker installed and started"
+    # Check for legacy docker-compose and warn about it
+    if command_exists docker-compose; then
+        local legacy_version=$(docker-compose version --short 2>/dev/null || echo "unknown")
+        print_warning "Legacy docker-compose ${legacy_version} found"
+        print_warning "This version has compatibility issues with newer Docker"
+        print_info "Installing Docker Compose V2 plugin..."
     else
-        print_error "Failed to install Docker"
-        print_info "You can still use the 'normal' installation method without Docker"
+        print_info "Installing Docker Compose V2 plugin..."
     fi
+    
+    # Detect architecture
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64)
+            arch="x86_64"
+            ;;
+        aarch64|arm64)
+            arch="aarch64"
+            ;;
+        armv7l|armhf)
+            arch="armv7"
+            ;;
+        *)
+            print_warning "Unknown architecture: $arch, trying x86_64"
+            arch="x86_64"
+            ;;
+    esac
+    
+    local compose_url="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch}"
+    local compose_dir="/usr/local/lib/docker/cli-plugins"
+    
+    mkdir -p "$compose_dir"
+    
+    if curl -SL "$compose_url" -o "${compose_dir}/docker-compose" 2>/dev/null; then
+        chmod +x "${compose_dir}/docker-compose"
+        
+        # Also create symlink in /usr/libexec/docker/cli-plugins for some distros
+        mkdir -p /usr/libexec/docker/cli-plugins 2>/dev/null || true
+        ln -sf "${compose_dir}/docker-compose" /usr/libexec/docker/cli-plugins/docker-compose 2>/dev/null || true
+        
+        # Verify installation
+        if docker compose version >/dev/null 2>&1; then
+            local version=$(docker compose version --short 2>/dev/null)
+            print_success "Docker Compose V2 installed (${version})"
+            return 0
+        fi
+    fi
+    
+    # Fallback: Try apt/yum package
+    print_warning "Direct download failed, trying package manager..."
+    
+    case "$OS" in
+        ubuntu|debian)
+            apt-get install -y docker-compose-plugin >/dev/null 2>&1 && {
+                print_success "Docker Compose V2 installed via apt"
+                return 0
+            }
+            ;;
+        centos|rhel|rocky|almalinux|fedora)
+            yum install -y docker-compose-plugin >/dev/null 2>&1 && {
+                print_success "Docker Compose V2 installed via yum"
+                return 0
+            }
+            ;;
+    esac
+    
+    # Final check
+    if docker compose version >/dev/null 2>&1; then
+        print_success "Docker Compose V2 installed"
+        return 0
+    fi
+    
+    print_error "Failed to install Docker Compose V2"
+    print_info "Please install manually: https://docs.docker.com/compose/install/linux/"
+    return 1
 }
 
 # =============================================================================
@@ -353,30 +443,31 @@ download_cli() {
     mkdir -p "$DATA_DIR"
     
     # Download main script
-    print_step "1/8" "Downloading main script..."
-    curl -sSL "${RAW_URL}/marzban-node-manager.sh" -o "${INSTALL_DIR}/marzban-node-manager.sh"
-    chmod +x "${INSTALL_DIR}/marzban-node-manager.sh"
+    echo -n "  Downloading main script... "
+    if curl -sSL "${RAW_URL}/marzban-node-manager.sh" -o "${INSTALL_DIR}/marzban-node-manager.sh" 2>/dev/null; then
+        chmod +x "${INSTALL_DIR}/marzban-node-manager.sh"
+        echo -e "${GREEN}✓${RESET}"
+    else
+        echo -e "${RED}✗${RESET}"
+        print_error "Failed to download main script"
+        return 1
+    fi
     
     # Download library files
-    print_step "2/8" "Downloading colors.sh..."
-    curl -sSL "${RAW_URL}/lib/colors.sh" -o "${INSTALL_DIR}/lib/colors.sh"
+    local libs=("colors.sh" "utils.sh" "database.sh" "ports.sh" "docker.sh" "systemd.sh")
     
-    print_step "3/8" "Downloading utils.sh..."
-    curl -sSL "${RAW_URL}/lib/utils.sh" -o "${INSTALL_DIR}/lib/utils.sh"
+    for lib in "${libs[@]}"; do
+        echo -n "  Downloading ${lib}... "
+        if curl -sSL "${RAW_URL}/lib/${lib}" -o "${INSTALL_DIR}/lib/${lib}" 2>/dev/null; then
+            echo -e "${GREEN}✓${RESET}"
+        else
+            echo -e "${RED}✗${RESET}"
+            print_error "Failed to download ${lib}"
+            return 1
+        fi
+    done
     
-    print_step "4/8" "Downloading database.sh..."
-    curl -sSL "${RAW_URL}/lib/database.sh" -o "${INSTALL_DIR}/lib/database.sh"
-    
-    print_step "5/8" "Downloading ports.sh..."
-    curl -sSL "${RAW_URL}/lib/ports.sh" -o "${INSTALL_DIR}/lib/ports.sh"
-    
-    print_step "6/8" "Downloading docker.sh..."
-    curl -sSL "${RAW_URL}/lib/docker.sh" -o "${INSTALL_DIR}/lib/docker.sh"
-    
-    print_step "7/8" "Downloading systemd.sh..."
-    curl -sSL "${RAW_URL}/lib/systemd.sh" -o "${INSTALL_DIR}/lib/systemd.sh"
-    
-    print_step "8/8" "Setting permissions..."
+    # Set permissions
     chmod +x "${INSTALL_DIR}/lib/"*.sh
     
     print_success "Download complete"
