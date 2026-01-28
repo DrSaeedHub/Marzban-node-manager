@@ -42,6 +42,7 @@ METHOD="docker"
 CERT_PATH=""
 CERT_CONTENT=""
 INBOUNDS=""
+INBOUNDS_SET=false
 YES_MODE=false
 FOLLOW_LOGS=false
 
@@ -149,6 +150,7 @@ parse_args() {
                 ;;
             -i|--inbounds)
                 INBOUNDS="$2"
+                INBOUNDS_SET=true
                 shift 2
                 ;;
             -y|--yes)
@@ -406,6 +408,16 @@ cmd_edit() {
     local new_inbounds="$INBOUNDS"
     local inbounds_changed=false
     
+    # If inbounds were explicitly set, keep existing ports unless overridden
+    if [[ "$INBOUNDS_SET" == true ]]; then
+        if [[ -z "$new_service_port" ]]; then
+            new_service_port="$NODE_SERVICE_PORT"
+        fi
+        if [[ -z "$new_xray_port" ]]; then
+            new_xray_port="$NODE_XRAY_PORT"
+        fi
+    fi
+    
     if [[ -z "$new_service_port" ]]; then
         prompt_port "Enter new SERVICE_PORT" "$NODE_SERVICE_PORT" "$NODE_NAME" "SERVICE_PORT"
         new_service_port="$SELECTED_PORT"
@@ -417,7 +429,11 @@ cmd_edit() {
     fi
     
     # Handle inbounds - if not provided via CLI, prompt interactively
-    if [[ -z "$new_inbounds" && "$YES_MODE" != true ]]; then
+    if [[ "$INBOUNDS_SET" == true ]]; then
+        if [[ "$new_inbounds" != "$NODE_INBOUNDS" ]]; then
+            inbounds_changed=true
+        fi
+    elif [[ -z "$new_inbounds" && "$YES_MODE" != true ]]; then
         local current_inbounds="${NODE_INBOUNDS:-}"
         prompt_input "Enter INBOUNDS (comma-separated, empty for all)" "$current_inbounds"
         new_inbounds="$REPLY"
@@ -455,20 +471,20 @@ cmd_edit() {
     if [[ "$NODE_METHOD" == "docker" ]]; then
         local compose_file="${NODE_DIR}/docker-compose.yml"
         update_compose_ports "$compose_file" "$new_service_port" "$new_xray_port"
-        if [[ "$inbounds_changed" == true || -n "$INBOUNDS" ]]; then
+        if [[ "$inbounds_changed" == true || "$INBOUNDS_SET" == true ]]; then
             update_compose_inbounds "$compose_file" "$new_inbounds"
         fi
     else
         local env_file="${NODE_DIR}/.env"
         update_env_ports "$env_file" "$new_service_port" "$new_xray_port"
-        if [[ "$inbounds_changed" == true || -n "$INBOUNDS" ]]; then
+        if [[ "$inbounds_changed" == true || "$INBOUNDS_SET" == true ]]; then
             update_env_inbounds "$env_file" "$new_inbounds"
         fi
     fi
     
     # Update database
     db_node_update_ports "$NODE_NAME" "$new_service_port" "$new_xray_port"
-    if [[ "$inbounds_changed" == true || -n "$INBOUNDS" ]]; then
+    if [[ "$inbounds_changed" == true || "$INBOUNDS_SET" == true ]]; then
         db_node_update "$NODE_NAME" "inbounds" "$new_inbounds"
     fi
     
@@ -969,4 +985,3 @@ main() {
 
 # Run main function
 main "$@"
-
