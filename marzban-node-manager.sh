@@ -444,9 +444,16 @@ cmd_edit() {
         inbounds_changed=true
     fi
     
-    # Validate new port pair
-    if ! validate_port_pair "$new_service_port" "$new_xray_port" "$NODE_NAME"; then
-        exit 1
+    local ports_changed=false
+    if [[ "$new_service_port" != "$NODE_SERVICE_PORT" || "$new_xray_port" != "$NODE_XRAY_PORT" ]]; then
+        ports_changed=true
+    fi
+    
+    # Validate new port pair only if ports are changed
+    if [[ "$ports_changed" == true ]]; then
+        if ! validate_port_pair "$new_service_port" "$new_xray_port" "$NODE_NAME"; then
+            exit 1
+        fi
     fi
     
     echo ""
